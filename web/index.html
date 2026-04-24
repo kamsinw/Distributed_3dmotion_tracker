@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Distributed 3D Motion Tracker</title>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #070c18;
+      color: #d0dff0;
+      font-family: 'Courier New', Courier, monospace;
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ---------- 3D canvas ---------- */
+    #canvas-wrap {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+    #canvas-wrap canvas { display: block; }
+
+    /* Subtle title overlay */
+    #scene-title {
+      position: absolute;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 0.65rem;
+      letter-spacing: 0.18em;
+      color: rgba(80,160,255,0.6);
+      text-transform: uppercase;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    /* ---------- HUD sidebar ---------- */
+    #hud {
+      width: 270px;
+      min-width: 270px;
+      background: rgba(6, 12, 26, 0.95);
+      border-left: 1px solid #122040;
+      padding: 18px 14px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      overflow-y: auto;
+    }
+
+    #hud-title {
+      font-size: 0.7rem;
+      letter-spacing: 0.16em;
+      color: #3a7acc;
+      text-transform: uppercase;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #122040;
+    }
+
+    .section {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .section-label {
+      font-size: 0.58rem;
+      color: #3a7acc;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      margin-bottom: 3px;
+    }
+
+    /* Motion state badge */
+    #state-badge {
+      text-align: center;
+      padding: 9px 6px;
+      border-radius: 3px;
+      font-size: 1.05rem;
+      font-weight: bold;
+      letter-spacing: 0.2em;
+      transition: background 0.25s, color 0.25s, border-color 0.25s;
+    }
+    .s-idle  { background: #0d1f0d; color: #4caf50; border: 1px solid #2e6e2e; }
+    .s-move  { background: #0c1525; color: #42a5f5; border: 1px solid #1e4a80; }
+    .s-shake { background: #231508; color: #ffa726; border: 1px solid #7a4000; }
+    .s-drop  { background: #200a0a; color: #ef5350; border: 1px solid #7a1010; }
+
+    /* Metric rows */
+    .metric {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      font-size: 0.76rem;
+      padding: 3px 0;
+      border-bottom: 1px solid rgba(18,32,64,0.6);
+    }
+    .metric .lbl  { color: #5a7898; }
+    .metric .val  { color: #90c8ff; font-weight: bold; font-variant-numeric: tabular-nums; }
+
+    /* Node status */
+    .dot {
+      display: inline-block;
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      margin-right: 7px;
+      vertical-align: middle;
+    }
+    .dot-ok    { background: #4caf50; }
+    .dot-stale { background: #ef5350; }
+    .dot-wait  { background: #ff9800; }
+
+    /* Trail footer */
+    #trail-footer {
+      margin-top: auto;
+      font-size: 0.6rem;
+      color: #2a4060;
+      padding-top: 8px;
+      border-top: 1px solid #122040;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="canvas-wrap">
+    <div id="scene-title">Distributed Real-Time 3D Motion Reconstruction</div>
+  </div>
+
+  <div id="hud">
+    <div id="hud-title">Motion Tracker</div>
+
+    <!-- Motion State -->
+    <div class="section">
+      <div class="section-label">Motion State</div>
+      <div id="state-badge" class="s-idle">IDLE</div>
+    </div>
+
+    <!-- Orientation -->
+    <div class="section">
+      <div class="section-label">Orientation (rad)</div>
+      <div class="metric"><span class="lbl">Roll</span>  <span class="val" id="v-roll">0.000</span></div>
+      <div class="metric"><span class="lbl">Pitch</span> <span class="val" id="v-pitch">0.000</span></div>
+      <div class="metric"><span class="lbl">Yaw</span>   <span class="val" id="v-yaw">0.000</span></div>
+    </div>
+
+    <!-- Motion -->
+    <div class="section">
+      <div class="section-label">Motion</div>
+      <div class="metric"><span class="lbl">Velocity</span>  <span class="val" id="v-vel">0.000</span></div>
+      <div class="metric"><span class="lbl">Accel Mag</span> <span class="val" id="v-acc">0.000</span></div>
+    </div>
+
+    <!-- Distance -->
+    <div class="section">
+      <div class="section-label">Distance (cm)</div>
+      <div class="metric"><span class="lbl">Absolute</span> <span class="val" id="v-dist">0.0</span></div>
+      <div class="metric"><span class="lbl">Relative</span> <span class="val" id="v-rel">0.0</span></div>
+      <div class="metric"><span class="lbl">Speed</span>    <span class="val" id="v-spd">0.00</span></div>
+    </div>
+
+    <!-- Fused Position -->
+    <div class="section">
+      <div class="section-label">Fused Position</div>
+      <div class="metric"><span class="lbl">X</span> <span class="val" id="v-x">0.000</span></div>
+      <div class="metric"><span class="lbl">Y</span> <span class="val" id="v-y">0.000</span></div>
+      <div class="metric"><span class="lbl">Z</span> <span class="val" id="v-z">0.000</span></div>
+    </div>
+
+    <!-- Node Status -->
+    <div class="section">
+      <div class="section-label">Node Status</div>
+      <div class="metric">
+        <span class="lbl"><span class="dot dot-wait" id="dot-mpu"></span>MPU9250</span>
+        <span class="val" id="st-mpu">waiting</span>
+      </div>
+      <div class="metric">
+        <span class="lbl"><span class="dot dot-wait" id="dot-ultra"></span>HC-SR04</span>
+        <span class="val" id="st-ultra">waiting</span>
+      </div>
+    </div>
+
+    <div id="trail-footer">
+      Trail: <span id="v-trail">0</span> / 100 pts
+    </div>
+  </div>
+
+  <!-- CDN libraries (no build step required) -->
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+  <!-- Application scripts -->
+  <script src="three_scene.js"></script>
+  <script src="main.js"></script>
+
+</body>
+</html>
