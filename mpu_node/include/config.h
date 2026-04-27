@@ -10,7 +10,7 @@
 // Server — set to your Mac's local IP (e.g. 192.168.1.100)
 // ---------------------------------------------------------------
 #define SERVER_IP   "172.20.10.11"
-#define SERVER_PORT 9000
+#define SERVER_PORT 9001
 
 // ---------------------------------------------------------------
 // MPU9250 x2 — shared I2C bus, different addresses via AD0 pin

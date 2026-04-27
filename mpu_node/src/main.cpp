@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <math.h>
 #include "config.h"
 #include "mpu_driver.h"
 #include "orientation.h"
@@ -13,6 +14,9 @@ static uint32_t last_send_ms = 0;
 // Latest calibrated accelerometer readings (m/s²), updated at 50 Hz.
 // Read by the 20 Hz send loop to include in the JSON packet.
 static float g_ax = 0.0f, g_ay = 0.0f, g_az = 0.0f;
+
+// Sensor B (position sensor) orientation angles, updated at 50 Hz.
+static float g_pos_roll = 0.0f, g_pos_pitch = 0.0f;
 
 static char json_buf[256];
 
@@ -61,7 +65,6 @@ void loop() {
 
         RawImuData imu;
         if (mpuRead(imu)) {
-            // Store latest accelerometer readings for the send loop
             g_ax = imu.ax;
             g_ay = imu.ay;
             g_az = imu.az;
@@ -70,6 +73,15 @@ void loop() {
             orientationUpdate(imu.ax, imu.ay, imu.az,
                               imu.gx, imu.gy, imu.gz, dt);
             featureUpdate(imu.ax, imu.ay, imu.az, dt);
+        }
+
+        // Sensor B — position sensor
+        RawImuData pos_imu;
+        if (mpuReadPos(pos_imu)) {
+            g_pos_roll  = atan2f(pos_imu.ay, pos_imu.az);
+            g_pos_pitch = atan2f(-pos_imu.ax,
+                                 sqrtf(pos_imu.ay * pos_imu.ay +
+                                       pos_imu.az * pos_imu.az));
         }
     }
 
@@ -87,11 +99,13 @@ void loop() {
             "{\"node\":\"mpu\",\"timestamp\":%lu,"
             "\"ax\":%.4f,\"ay\":%.4f,\"az\":%.4f,"
             "\"roll\":%.4f,\"pitch\":%.4f,\"yaw\":%.4f,"
+            "\"pos_roll\":%.4f,\"pos_pitch\":%.4f,"
             "\"velocity\":%.4f,\"accel_mag\":%.4f,"
             "\"state\":\"%s\"}",
             (unsigned long)millis(),
             g_ax, g_ay, g_az,
             o.roll, o.pitch, o.yaw,
+            g_pos_roll, g_pos_pitch,
             f.velocity, f.accel_mag,
             stateToString(s));
 

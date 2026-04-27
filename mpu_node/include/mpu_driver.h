@@ -16,10 +16,14 @@ bool mpuInit();
 // per-sensor accelerometer DC offsets.  Call once during setup().
 void mpuCalibrate(int samples = 200);
 
-// Poll both sensors, average, apply bias removal and LPF (alpha=0.7).
-// Returns false only if no sensor produced new data this cycle.
+// Read sensor A (0x69) — used for cube rotation.
+// Applies bias removal and LPF.
 bool mpuRead(RawImuData &out);
 
+// Read sensor B (0x68) — used for cube position.
+// Applies bias removal and LPF.
+bool mpuReadPos(RawImuData &out);
+
 // Returns bitmask of which sensors initialised successfully.
-// Bit 0 = sensor A (0x68), Bit 1 = sensor B (0x69).
+// Bit 0 = sensor A (0x69), Bit 1 = sensor B (0x68).
 uint8_t mpuActiveMask();

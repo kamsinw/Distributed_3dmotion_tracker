@@ -39,6 +39,13 @@ _state = {
         "state":     "IDLE",
         "last_seen": 0.0,
     },
+    "ultrasonic": {
+        "node":              "ultrasonic",
+        "distance":          100.0,
+        "relative_distance": 100.0,
+        "speed":             0.0,
+        "last_seen":         0.0,
+    },
 }
 
 _fusion = SensorFusion(trail_size=100)
@@ -112,10 +119,12 @@ def _tcp_listener(port: int, node_key: str):
 
 def _get_fused_data() -> dict:
     with _lock:
-        mpu = dict(_state["mpu"])
+        mpu   = dict(_state["mpu"])
+        ultra = dict(_state["ultrasonic"])
 
-    now       = time.time()
-    mpu_stale = (now - mpu["last_seen"]) > 2.0
+    now        = time.time()
+    mpu_stale  = (now - mpu["last_seen"])   > 2.0
+    ultra_stale = (now - ultra["last_seen"]) > 2.0
 
     # Freeze position when the sensor is stale — avoids the cube jumping
     # to a drifted value the moment the ESP32 reconnects.
@@ -126,10 +135,12 @@ def _get_fused_data() -> dict:
     trail = _fusion.get_trail()
 
     return {
-        "mpu":       mpu,
-        "position":  position,
-        "trail":     trail,
-        "mpu_stale": mpu_stale,
+        "mpu":         mpu,
+        "position":    position,
+        "trail":       trail,
+        "mpu_stale":   mpu_stale,
+        "ultra":       ultra,
+        "ultra_stale": ultra_stale,
     }
 
 
@@ -140,8 +151,13 @@ def _get_fused_data() -> dict:
 if __name__ == "__main__":
     # TCP listener thread (daemon — auto-exit when main thread ends)
     threading.Thread(
-        target=_tcp_listener, args=(9000, "mpu"),
+        target=_tcp_listener, args=(9001, "mpu"),
         daemon=True, name="tcp-listener-mpu"
+    ).start()
+
+    threading.Thread(
+        target=_tcp_listener, args=(9002, "ultrasonic"),
+        daemon=True, name="tcp-listener-ultrasonic"
     ).start()
 
     # WebSocket broadcast thread

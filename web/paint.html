@@ -137,11 +137,14 @@
 </div>
 
 <div id="debug">
-  <div><span class="label">socket  </span> <span id="dbg-ws"  class="bad">disconnected</span></div>
-  <div><span class="label">ESP32   </span> <span id="dbg-esp" class="bad">no data yet</span></div>
+  <div><span class="label">socket  </span> <span id="dbg-ws"    class="bad">disconnected</span></div>
+  <div><span class="label">ESP32   </span> <span id="dbg-esp"   class="bad">no data yet</span></div>
+  <div><span class="label">ultra   </span> <span id="dbg-ultra" class="bad">—</span></div>
   <div><span class="label">events  </span> <span id="dbg-evt">0</span> /s</div>
   <div><span class="label">roll    </span> <span id="dbg-roll">—</span> rad</div>
   <div><span class="label">pitch   </span> <span id="dbg-pitch">—</span> rad</div>
+  <div><span class="label">dist    </span> <span id="dbg-dist">—</span> cm</div>
+  <div><span class="label">speed   </span> <span id="dbg-speed">—</span> cm/s</div>
   <div><span class="label">canvas  </span> <span id="dbg-xy">—</span> px</div>
   <div><span class="label">pen     </span> <span id="dbg-pen">down</span></div>
 </div>
@@ -175,9 +178,12 @@
   const dbg = {
     ws:    document.getElementById("dbg-ws"),
     esp:   document.getElementById("dbg-esp"),
+    ultra: document.getElementById("dbg-ultra"),
     evt:   document.getElementById("dbg-evt"),
     roll:  document.getElementById("dbg-roll"),
     pitch: document.getElementById("dbg-pitch"),
+    dist:  document.getElementById("dbg-dist"),
+    speed: document.getElementById("dbg-speed"),
     xy:    document.getElementById("dbg-xy"),
     pen:   document.getElementById("dbg-pen"),
   };
@@ -203,18 +209,37 @@
     sizeVal.textContent = sizePick.value + "px";
   });
 
-  let penDown = true;
+  // _manualPen: state set by the toolbar button (fallback when no ultrasonic)
+  // _ultraPen:  state driven by distance threshold (active when ultra_alive)
+  // penDown:    resolved each frame — ultra takes priority when connected
+  let _manualPen = true;
+  let _ultraPen  = true;
+  let penDown    = true;
+
+  // Ultrasonic pen-lift thresholds (cm) — absolute distance, with hysteresis
+  const PEN_LIFT_CM   = 5;
+  const PEN_RESUME_CM = 4;
+
+  // Swipe-to-undo: speed threshold (cm/s) and cooldown (ms)
+  const SWIPE_SPEED_CM_S = 60;
+  const UNDO_COOLDOWN_MS = 1500;
+  let _lastUndoTime = 0;
+
+  // Stroke history for undo (stores ImageData snapshots, max 20)
+  const MAX_HISTORY = 20;
+  const _strokeHistory = [];
+
   btnPen.addEventListener("click", () => {
-    penDown = !penDown;
-    btnPen.textContent = penDown ? "✏ Draw" : "✋ Lift";
-    btnPen.classList.toggle("active", penDown);
-    dbg.pen.textContent = penDown ? "down" : "up (lifted)";
+    _manualPen = !_manualPen;
+    btnPen.textContent = _manualPen ? "✏ Draw" : "✋ Lift";
+    btnPen.classList.toggle("active", _manualPen);
     lastX = null; lastY = null;
   });
 
   btnClear.addEventListener("click", () => {
     ctx.fillStyle = "#fff";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+    _strokeHistory.length = 0;
     lastX = null; lastY = null;
     resetCursor();
   });
@@ -277,6 +302,11 @@
     ctx.lineJoin    = "round";
 
     if (lastX === null) {
+      // Save canvas state before starting a new stroke so it can be undone
+      const snap = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      _strokeHistory.push(snap);
+      if (_strokeHistory.length > MAX_HISTORY) _strokeHistory.shift();
+
       // First point — draw a dot
       ctx.beginPath();
       ctx.arc(cx, cy, ctx.lineWidth / 2, 0, Math.PI * 2);
@@ -334,6 +364,46 @@
 
     dbg.roll.textContent  = roll.toFixed(4);
     dbg.pitch.textContent = pitch.toFixed(4);
+
+    // ── Ultrasonic pen lift ──────────────────────────────────────────────────
+    const ultraAlive = data.ultra_alive === true;
+    const absDist    = parseFloat(data.distance);
+    const speed      = parseFloat(data.speed);
+
+    dbg.ultra.textContent = ultraAlive ? "connected ✓" : "—";
+    dbg.ultra.className   = ultraAlive ? "good" : "bad";
+
+    if (ultraAlive && isFinite(absDist)) {
+      dbg.dist.textContent  = absDist.toFixed(1);
+      dbg.speed.textContent = isFinite(speed) ? speed.toFixed(1) : "—";
+
+      // Hand within PEN_LIFT_CM → pen up; beyond PEN_RESUME_CM → pen down
+      if (absDist < PEN_LIFT_CM)   _ultraPen = false;
+      if (absDist > PEN_RESUME_CM) _ultraPen = true;
+
+      penDown = _ultraPen;
+    } else {
+      // Fall back to manual button when ultrasonic is disconnected
+      penDown = _manualPen;
+    }
+
+    // Update button appearance to reflect current pen state
+    btnPen.textContent = penDown ? "✏ Draw" : "✋ Lift";
+    btnPen.classList.toggle("active", penDown);
+    dbg.pen.textContent = penDown ? "down" : "up";
+
+    // Break stroke continuity on pen lift so next touch starts a fresh stroke
+    if (!penDown) { lastX = null; lastY = null; }
+
+    // ── Swipe-to-undo ────────────────────────────────────────────────────────
+    if (ultraAlive && isFinite(speed) && Math.abs(speed) > SWIPE_SPEED_CM_S) {
+      const now = Date.now();
+      if (now - _lastUndoTime > UNDO_COOLDOWN_MS && _strokeHistory.length > 0) {
+        ctx.putImageData(_strokeHistory.pop(), 0, 0);
+        lastX = null; lastY = null;
+        _lastUndoTime = now;
+      }
+    }
 
     // Subtract resting bias so flat = no movement
     const b = applyBias(pitch, roll);

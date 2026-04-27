@@ -37,11 +37,19 @@ def static_files(f):
 # ── Shared sensor state ───────────────────────────────────────────────────────
 
 _lock  = threading.Lock()
-_state = {"roll": 0.0, "pitch": 0.0, "alive": False}
+_state = {
+    "roll":              0.0,
+    "pitch":             0.0,
+    "alive":             False,
+    "distance":          100.0,
+    "relative_distance": 100.0,
+    "speed":             0.0,
+    "ultra_alive":       False,
+}
 
 # ── TCP listener  (ESP32 connects here) ──────────────────────────────────────
 
-def tcp_listener(port=9000):
+def tcp_listener(port, handler):
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind(("0.0.0.0", port))
@@ -51,7 +59,7 @@ def tcp_listener(port=9000):
     while True:
         conn, addr = srv.accept()
         print(f"[TCP] Connected: {addr}")
-        threading.Thread(target=handle_client, args=(conn, addr),
+        threading.Thread(target=handler, args=(conn, addr),
                          daemon=True).start()
 
 def handle_client(conn, addr):
@@ -78,6 +86,31 @@ def handle_client(conn, addr):
             _state["alive"] = False
         print(f"[TCP] Disconnected: {addr}")
 
+def handle_ultra_client(conn, addr):
+    with _lock:
+        _state["ultra_alive"] = True
+    try:
+        reader = conn.makefile("r", buffering=1)
+        for line in reader:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                data = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            with _lock:
+                _state["distance"]          = float(data.get("distance",          100.0))
+                _state["relative_distance"] = float(data.get("relative_distance", 100.0))
+                _state["speed"]             = float(data.get("speed",             0.0))
+    except Exception as e:
+        print(f"[TCP] Ultrasonic client error: {e}")
+    finally:
+        conn.close()
+        with _lock:
+            _state["ultra_alive"] = False
+        print(f"[TCP] Ultrasonic disconnected: {addr}")
+
 # ── Broadcast loop  (20 Hz → browser) ────────────────────────────────────────
 
 def broadcast_loop(hz=20):
@@ -86,9 +119,13 @@ def broadcast_loop(hz=20):
         t0 = time.time()
         with _lock:
             payload = {
-                "x":     round(_state["roll"],  4),
-                "y":     round(_state["pitch"], 4),
-                "alive": _state["alive"],
+                "x":                  round(_state["roll"],              4),
+                "y":                  round(_state["pitch"],             4),
+                "alive":              _state["alive"],
+                "distance":           round(_state["distance"],          2),
+                "relative_distance":  round(_state["relative_distance"], 2),
+                "speed":              round(_state["speed"],             4),
+                "ultra_alive":        _state["ultra_alive"],
             }
         socketio.emit("paint_update", payload)
         time.sleep(max(0.0, interval - (time.time() - t0)))
@@ -96,7 +133,8 @@ def broadcast_loop(hz=20):
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    threading.Thread(target=tcp_listener, daemon=True).start()
+    threading.Thread(target=tcp_listener, args=(9000, handle_client),      daemon=True).start()
+    threading.Thread(target=tcp_listener, args=(9002, handle_ultra_client), daemon=True).start()
     threading.Thread(target=broadcast_loop, daemon=True).start()
     print("[SYS] Paint server  →  http://localhost:5002/")
     socketio.run(app, host="0.0.0.0", port=5002, debug=False,

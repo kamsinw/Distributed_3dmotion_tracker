@@ -18,6 +18,13 @@ const LERP     = 0.12;
 //   Prevents the cube teleporting if a stale packet arrives.
 const MAX_JUMP = 2.0;
 
+// Camera zoom driven by ultrasonic distance (cm → camera Z scene units).
+const CAM_Z_DEFAULT  = 6;
+const CAM_Z_MIN      = 3;
+const CAM_Z_MAX      = 14;
+const ULTRA_DIST_MIN = 10;
+const ULTRA_DIST_MAX = 80;
+
 class ThreeScene {
   constructor(container) {
     this._container = container;
@@ -28,6 +35,12 @@ class ThreeScene {
 
     // Target position set by update(); cube lerps toward it each frame.
     this._targetPos = { x: 0, y: 0, z: 0 };
+
+    // Calibration offset — subtracted from every incoming position.
+    this._calOffset = { x: 0, y: 0, z: 0 };
+
+    // Target camera Z — driven by ultrasonic distance, lerped each frame.
+    this._targetCamZ = CAM_Z_DEFAULT;
 
     this._initRenderer();
     this._initScene();
@@ -143,6 +156,27 @@ class ThreeScene {
   }
 
   // ----------------------------------------------------------------
+  // Public reset — snap cube and camera back to the origin
+  // ----------------------------------------------------------------
+
+  resetToCenter() {
+    this._targetPos.x = 0;
+    this._targetPos.y = 0;
+    this._targetPos.z = 0;
+    this._cube.position.set(0, 0, 0);
+    this._camTargetX  = 0;
+    this._targetCamZ  = CAM_Z_DEFAULT;
+    this._camera.position.set(0, 2.5, CAM_Z_DEFAULT);
+    this._camera.lookAt(0, 0, 0);
+  }
+
+  setCalibrationOffset(x, y, z) {
+    this._calOffset.x = x;
+    this._calOffset.y = y;
+    this._calOffset.z = z;
+  }
+
+  // ----------------------------------------------------------------
   // Public update — called on every sensor_update WebSocket event
   // ----------------------------------------------------------------
 
@@ -151,20 +185,33 @@ class ThreeScene {
     const pos   = data.position || { x: 0, y: 0, z: 0 };
     const trail = data.trail    || [];
 
-    // --- Cube rotation (radians from server Madgwick filter) ---
-    this._cube.rotation.x = _f(mpu.roll);
-    this._cube.rotation.y = _f(mpu.yaw);
-    this._cube.rotation.z = _f(mpu.pitch);
+    // --- Cube rotation ---
+    // roll  → X (up/down tilt)
+    // pitch → Y (left/right turn)
+    // yaw   → Z (in/out spin)
+    this._cube.rotation.x = _f(mpu.pitch);
+    this._cube.rotation.y = _f(mpu.roll);
+    this._cube.rotation.z = _f(mpu.yaw);
 
     // --- Target position (lerp happens in _animate) ---
     // Clamp large jumps to prevent teleporting on reconnect / stale packets.
-    const rawX = _f(pos.x) * SCALE;
-    const rawY = _f(pos.y) * SCALE;
-    const rawZ = _f(pos.z) * SCALE;
+    const rawX = (_f(pos.x) - this._calOffset.x) * SCALE;
+    const rawY = (_f(pos.y) - this._calOffset.y) * SCALE;
+    const rawZ = (_f(pos.z) - this._calOffset.z) * SCALE;
 
     this._targetPos.x = this._clamp(rawX, this._targetPos.x);
     this._targetPos.y = this._clamp(rawY, this._targetPos.y);
     this._targetPos.z = this._clamp(rawZ, this._targetPos.z);
+
+    // --- Camera zoom from ultrasonic distance ---
+    const ultra = data.ultra || {};
+    const dist  = _f(ultra.distance);
+    if (!data.ultra_stale && dist > 0) {
+      const t = Math.max(0, Math.min(1,
+        (dist - ULTRA_DIST_MIN) / (ULTRA_DIST_MAX - ULTRA_DIST_MIN)
+      ));
+      this._targetCamZ = CAM_Z_MIN + t * (CAM_Z_MAX - CAM_Z_MIN);
+    }
 
     // --- Motion trail ---
     this._updateTrail(trail);
@@ -213,6 +260,10 @@ class ThreeScene {
     // Camera gently follows cube on X axis
     this._camTargetX += (this._cube.position.x - this._camTargetX) * 0.04;
     this._camera.position.x = this._camTargetX;
+
+    // Camera smoothly zooms in/out based on ultrasonic distance
+    this._camera.position.z += (this._targetCamZ - this._camera.position.z) * LERP;
+
     this._camera.lookAt(this._camTargetX, 0, 0);
 
     this._renderer.render(this._scene, this._camera);

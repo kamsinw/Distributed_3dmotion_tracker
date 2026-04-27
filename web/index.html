@@ -113,6 +113,25 @@
     .dot-stale { background: #ef5350; }
     .dot-wait  { background: #ff9800; }
 
+    /* Reset / Calibrate buttons */
+    #btn-reset, #btn-cal {
+      width: 100%;
+      padding: 8px 0;
+      background: #0d1a2e;
+      border: 1px solid #1e3a6a;
+      border-radius: 3px;
+      color: #4a9eff;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 0.7rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    #btn-reset:hover,  #btn-cal:hover  { background: #122040; border-color: #3a6aaa; }
+    #btn-reset:active, #btn-cal:active { background: #0a1828; }
+    #btn-cal.calibrating { color: #ffa726; border-color: #7a4000; background: #1a1000; cursor: default; }
+
     /* Trail footer */
     #trail-footer {
       margin-top: auto;
@@ -161,7 +180,21 @@
         <span class="lbl"><span class="dot dot-wait" id="dot-mpu"></span>MPU9250</span>
         <span class="val" id="st-mpu">waiting</span>
       </div>
+      <div class="metric">
+        <span class="lbl"><span class="dot dot-wait" id="dot-ultra"></span>Ultrasonic</span>
+        <span class="val" id="st-ultra">waiting</span>
+      </div>
     </div>
+
+    <!-- Ultrasonic -->
+    <div class="section">
+      <div class="section-label">Ultrasonic</div>
+      <div class="metric"><span class="lbl">Distance</span> <span class="val" id="v-dist">— cm</span></div>
+      <div class="metric"><span class="lbl">Speed</span>    <span class="val" id="v-uspeed">— cm/s</span></div>
+    </div>
+
+    <button id="btn-reset">⊕ Reset to Centre</button>
+    <button id="btn-cal">⊙ Calibrate</button>
 
     <div id="trail-footer">
       Trail: <span id="v-trail">0</span> / 100 pts

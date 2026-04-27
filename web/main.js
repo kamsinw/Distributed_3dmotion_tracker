@@ -9,6 +9,31 @@
   const scene = new ThreeScene(container);
 
   // ------------------------------------------------------------------
+  // Reset button
+  // ------------------------------------------------------------------
+  document.getElementById("btn-reset").addEventListener("click", () => {
+    scene.resetToCenter();
+  });
+
+  // ------------------------------------------------------------------
+  // Calibration — collect CAL_SAMPLES position readings while the
+  // device is held still, then use their mean as the zero offset.
+  // ------------------------------------------------------------------
+  const CAL_SAMPLES = 30;
+  let _calCount = 0;
+  let _calSum   = { x: 0, y: 0, z: 0 };
+  const btnCal  = document.getElementById("btn-cal");
+
+  btnCal.addEventListener("click", () => {
+    if (_calCount > 0) return;   // already collecting
+    _calCount     = CAL_SAMPLES;
+    _calSum.x = _calSum.y = _calSum.z = 0;
+    btnCal.textContent = "⏳ Hold still…";
+    btnCal.classList.add("calibrating");
+    btnCal.disabled = true;
+  });
+
+  // ------------------------------------------------------------------
   // Socket.IO connection
   // ------------------------------------------------------------------
   const socket = io("http://localhost:5001", {
@@ -27,6 +52,26 @@
   });
 
   socket.on("sensor_update", (data) => {
+    // Accumulate calibration samples before forwarding to the scene
+    if (_calCount > 0) {
+      const pos = data.position || {};
+      _calSum.x += _f(pos.x);
+      _calSum.y += _f(pos.y);
+      _calSum.z += _f(pos.z);
+      _calCount--;
+      if (_calCount === 0) {
+        scene.setCalibrationOffset(
+          _calSum.x / CAL_SAMPLES,
+          _calSum.y / CAL_SAMPLES,
+          _calSum.z / CAL_SAMPLES
+        );
+        scene.resetToCenter();
+        btnCal.textContent = "⊙ Calibrate";
+        btnCal.classList.remove("calibrating");
+        btnCal.disabled = false;
+      }
+    }
+
     // Forward raw payload to the 3D scene
     scene.update(data);
 
@@ -54,6 +99,12 @@
 
     // ---- Node status lights ----------------------------------------
     _setNodeStatus("dot-mpu", "st-mpu", data.mpu_stale, data.mpu_stale ? "stale" : "live");
+
+    // ---- Ultrasonic ------------------------------------------------
+    const ultra = data.ultra || {};
+    _setNodeStatus("dot-ultra", "st-ultra", data.ultra_stale, data.ultra_stale ? "stale" : "live");
+    _set("v-dist",   isFinite(parseFloat(ultra.distance)) ? _fmt(ultra.distance, 1) + " cm"   : "— cm");
+    _set("v-uspeed", isFinite(parseFloat(ultra.speed))    ? _fmt(ultra.speed,    1) + " cm/s" : "— cm/s");
   });
 
   // ------------------------------------------------------------------
@@ -101,6 +152,11 @@
     const d = (decimals === undefined) ? 3 : decimals;
     const n = parseFloat(v);
     return isFinite(n) ? n.toFixed(d) : "—";
+  }
+
+  function _f(v) {
+    const n = parseFloat(v);
+    return isFinite(n) ? n : 0;
   }
 
 }());
