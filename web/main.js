@@ -18,14 +18,12 @@
 
   socket.on("connect", () => {
     console.log("[WS] connected — sid:", socket.id);
-    _setNodeStatus("dot-mpu",   "st-mpu",   false, "waiting");
-    _setNodeStatus("dot-ultra", "st-ultra", false, "waiting");
+    _setNodeStatus("dot-mpu", "st-mpu", false, "waiting");
   });
 
   socket.on("disconnect", () => {
     console.warn("[WS] disconnected");
-    _setNodeStatus("dot-mpu",   "st-mpu",   null, "offline");
-    _setNodeStatus("dot-ultra", "st-ultra", null, "offline");
+    _setNodeStatus("dot-mpu", "st-mpu", null, "offline");
   });
 
   socket.on("sensor_update", (data) => {
@@ -34,7 +32,6 @@
 
     // Destructure with safe defaults
     const mpu   = data.mpu      || {};
-    const ultra = data.ultra    || {};
     const pos   = data.position || {};
     const trail = data.trail    || [];
 
@@ -47,15 +44,6 @@
     _set("v-pitch", _fmt(mpu.pitch));
     _set("v-yaw",   _fmt(mpu.yaw));
 
-    // ---- Motion -----------------------------------------------
-    _set("v-vel", _fmt(mpu.velocity));
-    _set("v-acc", _fmt(mpu.accel_mag));
-
-    // ---- Distance --------------------------------------------------
-    _set("v-dist", _fmt(ultra.distance,  1));
-    _set("v-rel",  _fmt(ultra.relative_distance, 1));
-    _set("v-spd",  _fmt(ultra.speed));
-
     // ---- Fused position --------------------------------------------
     _set("v-x", _fmt(pos.x));
     _set("v-y", _fmt(pos.y));
@@ -65,8 +53,7 @@
     _set("v-trail", trail.length);
 
     // ---- Node status lights ----------------------------------------
-    _setNodeStatus("dot-mpu",   "st-mpu",   data.mpu_stale,   data.mpu_stale   ? "stale" : "live");
-    _setNodeStatus("dot-ultra", "st-ultra", data.ultra_stale, data.ultra_stale ? "stale" : "live");
+    _setNodeStatus("dot-mpu", "st-mpu", data.mpu_stale, data.mpu_stale ? "stale" : "live");
   });
 
   // ------------------------------------------------------------------

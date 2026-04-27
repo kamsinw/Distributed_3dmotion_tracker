@@ -13,5 +13,6 @@ bool tcpConnected();
 bool sendJson(const char* json);
 
 // Check connection state; attempt reconnect if dropped.
+// Returns true the first time after a successful reconnect (one-shot flag).
 // Call from the main loop — non-blocking.
-void tcpReconnectIfNeeded();
+bool tcpReconnectIfNeeded();

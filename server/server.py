@@ -28,21 +28,16 @@ _state = {
     "mpu": {
         "node":      "mpu",
         "timestamp": 0,
+        "ax":        0.0,
+        "ay":        0.0,
+        "az":        9.81,   # gravity present until first real packet
         "roll":      0.0,
         "pitch":     0.0,
         "yaw":       0.0,
         "velocity":  0.0,
-        "accel_mag": 0.0,
+        "accel_mag": 9.81,
         "state":     "IDLE",
         "last_seen": 0.0,
-    },
-    "ultrasonic": {
-        "node":              "ultrasonic",
-        "timestamp":         0,
-        "distance":          0.0,
-        "relative_distance": 0.0,
-        "speed":             0.0,
-        "last_seen":         0.0,
     },
 }
 
@@ -82,6 +77,9 @@ def _handle_client(conn: socket.socket, addr, node_key: str):
     finally:
         conn.close()
         print(f"[TCP] {node_key} disconnected ({addr})")
+        # Reset integrator so position starts from 0 on next connect
+        if node_key == "mpu":
+            _fusion.reset()
 
 
 # ------------------------------------------------------------------
@@ -114,23 +112,24 @@ def _tcp_listener(port: int, node_key: str):
 
 def _get_fused_data() -> dict:
     with _lock:
-        mpu   = dict(_state["mpu"])
-        ultra = dict(_state["ultrasonic"])
+        mpu = dict(_state["mpu"])
 
-    now          = time.time()
-    mpu_stale    = (now - mpu["last_seen"])   > 2.0
-    ultra_stale  = (now - ultra["last_seen"]) > 2.0
+    now       = time.time()
+    mpu_stale = (now - mpu["last_seen"]) > 2.0
 
-    position = _fusion.fuse(mpu, ultra)
-    trail    = _fusion.get_trail()
+    # Freeze position when the sensor is stale — avoids the cube jumping
+    # to a drifted value the moment the ESP32 reconnects.
+    if not mpu_stale:
+        position = _fusion.fuse(mpu)
+    else:
+        position = _fusion.get_last_pos()
+    trail = _fusion.get_trail()
 
     return {
-        "mpu":         mpu,
-        "ultra":       ultra,
-        "position":    position,
-        "trail":       trail,
-        "mpu_stale":   mpu_stale,
-        "ultra_stale": ultra_stale,
+        "mpu":       mpu,
+        "position":  position,
+        "trail":     trail,
+        "mpu_stale": mpu_stale,
     }
 
 
@@ -139,15 +138,10 @@ def _get_fused_data() -> dict:
 # ------------------------------------------------------------------
 
 if __name__ == "__main__":
-    # TCP listener threads (daemon — auto-exit when main thread ends)
+    # TCP listener thread (daemon — auto-exit when main thread ends)
     threading.Thread(
         target=_tcp_listener, args=(9000, "mpu"),
         daemon=True, name="tcp-listener-mpu"
-    ).start()
-
-    threading.Thread(
-        target=_tcp_listener, args=(9001, "ultrasonic"),
-        daemon=True, name="tcp-listener-ultra"
     ).start()
 
     # WebSocket broadcast thread
@@ -157,4 +151,4 @@ if __name__ == "__main__":
     ).start()
 
     print("[SYS] Server running — open http://localhost:5000 in your browser")
-    socketio.run(app, host="0.0.0.0", port=5001, debug=False, use_reloader=False)
+    socketio.run(app, host="0.0.0.0", port=5001, debug=False, use_reloader=False, allow_unsafe_werkzeug=True)

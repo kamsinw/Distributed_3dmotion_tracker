@@ -7,6 +7,17 @@
  *   new ThreeScene(containerEl)   — attach renderer to container
  *   scene.update(data)            — accept a sensor_update payload
  */
+// ── Tuning constants ──────────────────────────────────────────────────────────
+// SCALE: position units from Python → Three.js scene units.
+//   Increase if movement looks too small; decrease if it flies off screen.
+const SCALE    = 8.0;
+// LERP: fraction of gap closed per 60 Hz frame (0.05 = very smooth/laggy,
+//   0.20 = responsive with slight smoothing).
+const LERP     = 0.12;
+// MAX_JUMP: maximum position change per frame in scene units.
+//   Prevents the cube teleporting if a stale packet arrives.
+const MAX_JUMP = 2.0;
+
 class ThreeScene {
   constructor(container) {
     this._container = container;
@@ -14,6 +25,9 @@ class ThreeScene {
 
     // Pre-allocated Float32Array for the trail geometry (avoids GC churn)
     this._trailBuf  = new Float32Array(this._maxTrail * 3);
+
+    // Target position set by update(); cube lerps toward it each frame.
+    this._targetPos = { x: 0, y: 0, z: 0 };
 
     this._initRenderer();
     this._initScene();
@@ -137,25 +151,30 @@ class ThreeScene {
     const pos   = data.position || { x: 0, y: 0, z: 0 };
     const trail = data.trail    || [];
 
-    // --- Cube rotation (angles are in radians from server) ---
+    // --- Cube rotation (radians from server Madgwick filter) ---
     this._cube.rotation.x = _f(mpu.roll);
     this._cube.rotation.y = _f(mpu.yaw);
     this._cube.rotation.z = _f(mpu.pitch);
 
-    // --- Cube translation ---
-    // x: scale relative distance (cm) to scene units
-    // y/z: driven by sin(pitch)/sin(roll) — already bounded to [-1,+1]
-    this._cube.position.x = _f(pos.x) * 0.04;
-    this._cube.position.y = _f(pos.y) * 1.8;
-    this._cube.position.z = _f(pos.z) * 1.8;
+    // --- Target position (lerp happens in _animate) ---
+    // Clamp large jumps to prevent teleporting on reconnect / stale packets.
+    const rawX = _f(pos.x) * SCALE;
+    const rawY = _f(pos.y) * SCALE;
+    const rawZ = _f(pos.z) * SCALE;
+
+    this._targetPos.x = this._clamp(rawX, this._targetPos.x);
+    this._targetPos.y = this._clamp(rawY, this._targetPos.y);
+    this._targetPos.z = this._clamp(rawZ, this._targetPos.z);
 
     // --- Motion trail ---
     this._updateTrail(trail);
+  }
 
-    // --- Camera gently follows cube on X axis ---
-    this._camTargetX += (this._cube.position.x - this._camTargetX) * 0.04;
-    this._camera.position.x = this._camTargetX;
-    this._camera.lookAt(this._camTargetX, 0, 0);
+  // Clamp val to within MAX_JUMP of prev to prevent sudden jumps.
+  _clamp(val, prev) {
+    const delta = val - prev;
+    if (Math.abs(delta) > MAX_JUMP) return prev + Math.sign(delta) * MAX_JUMP;
+    return val;
   }
 
   // ----------------------------------------------------------------
@@ -169,9 +188,9 @@ class ThreeScene {
     for (let i = 0; i < count; i++) {
       const pt  = trailData[i];
       const idx = i * 3;
-      this._trailBuf[idx]     = _f(pt.x) * 0.04;
-      this._trailBuf[idx + 1] = _f(pt.y) * 1.8;
-      this._trailBuf[idx + 2] = _f(pt.z) * 1.8;
+      this._trailBuf[idx]     = _f(pt.x) * SCALE;
+      this._trailBuf[idx + 1] = _f(pt.y) * SCALE;
+      this._trailBuf[idx + 2] = _f(pt.z) * SCALE;
     }
 
     const geo  = this._trailLine.geometry;
@@ -185,6 +204,17 @@ class ThreeScene {
 
   _animate() {
     requestAnimationFrame(() => this._animate());
+
+    // Smooth lerp toward target position every frame (independent of WebSocket rate)
+    this._cube.position.x += (this._targetPos.x - this._cube.position.x) * LERP;
+    this._cube.position.y += (this._targetPos.y - this._cube.position.y) * LERP;
+    this._cube.position.z += (this._targetPos.z - this._cube.position.z) * LERP;
+
+    // Camera gently follows cube on X axis
+    this._camTargetX += (this._cube.position.x - this._camTargetX) * 0.04;
+    this._camera.position.x = this._camTargetX;
+    this._camera.lookAt(this._camTargetX, 0, 0);
+
     this._renderer.render(this._scene, this._camera);
   }
 

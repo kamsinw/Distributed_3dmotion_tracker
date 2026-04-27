@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>MPU Paint</title>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #1a1a2e;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+      font-family: 'Courier New', monospace;
+      color: #ccc;
+    }
+
+    /* ── toolbar ── */
+    #toolbar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 14px;
+      background: #0f0f1e;
+      border-bottom: 1px solid #2a2a4a;
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+
+    #toolbar span { font-size: 0.7rem; color: #5a7898; letter-spacing: .1em; }
+
+    .tb-label { font-size: 0.62rem; color: #445; text-transform: uppercase; }
+
+    input[type=color] {
+      width: 32px; height: 28px;
+      border: none; border-radius: 3px;
+      cursor: pointer; padding: 0;
+      background: none;
+    }
+
+    input[type=range] { width: 80px; cursor: pointer; accent-color: #4af; }
+
+    button {
+      padding: 5px 14px;
+      border: 1px solid #334;
+      border-radius: 3px;
+      background: #1a2030;
+      color: #9cf;
+      font-size: 0.7rem;
+      cursor: pointer;
+      letter-spacing: .08em;
+      transition: background .15s;
+    }
+    button:hover { background: #253050; }
+    button.active { background: #1a4030; border-color: #2a8; color: #4fa; }
+
+    #status {
+      margin-left: auto;
+      font-size: 0.65rem;
+      color: #445;
+    }
+    #status.live { color: #4a8; }
+
+    /* ── canvas area ── */
+    #canvas-wrap {
+      flex: 1;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+
+    canvas {
+      background: #fff;
+      box-shadow: 0 4px 32px rgba(0,0,0,0.6);
+      cursor: none;
+      display: block;
+    }
+
+    /* cursor dot overlay */
+    #cursor-dot {
+      position: absolute;
+      width: 12px; height: 12px;
+      border-radius: 50%;
+      border: 2px solid #000;
+      background: transparent;
+      pointer-events: none;
+      transform: translate(-50%, -50%);
+      transition: left 30ms linear, top 30ms linear;
+    }
+
+    /* Debug panel */
+    #debug {
+      position: absolute;
+      bottom: 16px;
+      left: 16px;
+      background: rgba(0,0,0,0.75);
+      color: #0f0;
+      font-size: 0.65rem;
+      font-family: 'Courier New', monospace;
+      padding: 8px 12px;
+      border-radius: 4px;
+      line-height: 1.8;
+      pointer-events: none;
+      min-width: 220px;
+    }
+    #debug .label { color: #888; }
+    #debug .bad   { color: #f44; }
+    #debug .good  { color: #4f4; }
+    #debug .warn  { color: #fa0; }
+  </style>
+</head>
+<body>
+
+<div id="toolbar">
+  <span>MPU PAINT</span>
+
+  <span class="tb-label">Color</span>
+  <input type="color" id="color-pick" value="#000000" />
+
+  <span class="tb-label">Size</span>
+  <input type="range" id="size-pick" min="1" max="30" value="4" />
+  <span id="size-val">4px</span>
+
+  <button id="btn-pen" class="active">✏ Draw</button>
+  <button id="btn-cal">⊕ Calibrate</button>
+  <button id="btn-clear">✕ Clear</button>
+
+  <div id="status">waiting for sensor…</div>
+</div>
+
+<div id="canvas-wrap">
+  <canvas id="canvas"></canvas>
+  <div id="cursor-dot"></div>
+</div>
+
+<div id="debug">
+  <div><span class="label">socket  </span> <span id="dbg-ws"  class="bad">disconnected</span></div>
+  <div><span class="label">ESP32   </span> <span id="dbg-esp" class="bad">no data yet</span></div>
+  <div><span class="label">events  </span> <span id="dbg-evt">0</span> /s</div>
+  <div><span class="label">roll    </span> <span id="dbg-roll">—</span> rad</div>
+  <div><span class="label">pitch   </span> <span id="dbg-pitch">—</span> rad</div>
+  <div><span class="label">canvas  </span> <span id="dbg-xy">—</span> px</div>
+  <div><span class="label">pen     </span> <span id="dbg-pen">down</span></div>
+</div>
+
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script>
+(function () {
+
+  // ── Canvas setup ──────────────────────────────────────────────────────────
+  const wrap   = document.getElementById("canvas-wrap");
+  const canvas = document.getElementById("canvas");
+  const ctx    = canvas.getContext("2d");
+  const dot    = document.getElementById("cursor-dot");
+
+  function resizeCanvas() {
+    const pad = 32;
+    const w = wrap.clientWidth  - pad * 2;
+    const h = wrap.clientHeight - pad * 2;
+    // Save current drawing
+    const tmp = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    canvas.width  = Math.max(w, 100);
+    canvas.height = Math.max(h, 100);
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.putImageData(tmp, 0, 0);
+  }
+  resizeCanvas();
+  window.addEventListener("resize", resizeCanvas);
+
+  // ── Debug helpers ─────────────────────────────────────────────────────────
+  const dbg = {
+    ws:    document.getElementById("dbg-ws"),
+    esp:   document.getElementById("dbg-esp"),
+    evt:   document.getElementById("dbg-evt"),
+    roll:  document.getElementById("dbg-roll"),
+    pitch: document.getElementById("dbg-pitch"),
+    xy:    document.getElementById("dbg-xy"),
+    pen:   document.getElementById("dbg-pen"),
+  };
+
+  // Count events per second
+  let _evtCount = 0, _evtRate = 0;
+  setInterval(() => {
+    _evtRate = _evtCount;
+    _evtCount = 0;
+    dbg.evt.textContent = _evtRate;
+    dbg.evt.className = _evtRate > 0 ? "good" : "warn";
+  }, 1000);
+
+  // ── Toolbar ───────────────────────────────────────────────────────────────
+  const colorPick = document.getElementById("color-pick");
+  const sizePick  = document.getElementById("size-pick");
+  const sizeVal   = document.getElementById("size-val");
+  const btnPen    = document.getElementById("btn-pen");
+  const btnClear  = document.getElementById("btn-clear");
+  const status    = document.getElementById("status");
+
+  sizePick.addEventListener("input", () => {
+    sizeVal.textContent = sizePick.value + "px";
+  });
+
+  let penDown = true;
+  btnPen.addEventListener("click", () => {
+    penDown = !penDown;
+    btnPen.textContent = penDown ? "✏ Draw" : "✋ Lift";
+    btnPen.classList.toggle("active", penDown);
+    dbg.pen.textContent = penDown ? "down" : "up (lifted)";
+    lastX = null; lastY = null;
+  });
+
+  btnClear.addEventListener("click", () => {
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    lastX = null; lastY = null;
+    resetCursor();
+  });
+
+  // ── Cursor state (velocity-based — tilt angle = speed, not position) ───────
+  // Tilting drives the cursor like a joystick; holding flat leaves it in place.
+  // pitch → horizontal (X),  roll → vertical (Y)
+  let curX = canvas.width  / 2;
+  let curY = canvas.height / 2;
+  const SPEED = 250;   // px per radian per second — increase to make it faster
+  const DT    = 1 / 20; // matches the 20 Hz broadcast rate
+
+  function resetCursor() {
+    curX = canvas.width  / 2;
+    curY = canvas.height / 2;
+  }
+
+  // ── Bias calibration ──────────────────────────────────────────────────────
+  // Measures the resting tilt (sensor offset) and subtracts it from every
+  // reading so the cursor stays still when the device is held flat.
+  let biasPitch = 0;
+  let biasRoll  = 0;
+  const CAL_SAMPLES = 30;
+  let _calCount = 0, _calPSum = 0, _calRSum = 0;
+
+  const btnCal = document.getElementById("btn-cal");
+  btnCal.addEventListener("click", () => {
+    _calCount = CAL_SAMPLES;
+    _calPSum  = 0;
+    _calRSum  = 0;
+    btnCal.textContent = "⏳ Hold still…";
+    btnCal.disabled    = true;
+  });
+
+  function applyBias(rawPitch, rawRoll) {
+    if (_calCount > 0) {
+      _calPSum += rawPitch;
+      _calRSum += rawRoll;
+      _calCount--;
+      if (_calCount === 0) {
+        biasPitch = _calPSum / CAL_SAMPLES;
+        biasRoll  = _calRSum / CAL_SAMPLES;
+        btnCal.textContent = "⊕ Calibrate";
+        btnCal.disabled    = false;
+        lastX = null; lastY = null;
+      }
+    }
+    return { pitch: rawPitch - biasPitch, roll: rawRoll - biasRoll };
+  }
+
+  // ── Drawing state ─────────────────────────────────────────────────────────
+  let lastX = null, lastY = null;
+
+  function draw(cx, cy) {
+    if (!penDown) { lastX = cx; lastY = cy; return; }
+
+    ctx.lineWidth   = parseInt(sizePick.value);
+    ctx.strokeStyle = colorPick.value;
+    ctx.lineCap     = "round";
+    ctx.lineJoin    = "round";
+
+    if (lastX === null) {
+      // First point — draw a dot
+      ctx.beginPath();
+      ctx.arc(cx, cy, ctx.lineWidth / 2, 0, Math.PI * 2);
+      ctx.fillStyle = colorPick.value;
+      ctx.fill();
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(lastX, lastY);
+      ctx.lineTo(cx, cy);
+      ctx.stroke();
+    }
+    lastX = cx;
+    lastY = cy;
+  }
+
+  // ── Cursor dot positioning (relative to canvas in the page) ───────────────
+  function moveDot(cx, cy) {
+    const rect = canvas.getBoundingClientRect();
+    dot.style.left = (rect.left + cx) + "px";
+    dot.style.top  = (rect.top  + cy) + "px";
+    dot.style.borderColor = colorPick.value;
+  }
+
+  // ── WebSocket ─────────────────────────────────────────────────────────────
+  const socket = io("http://localhost:5002", {
+    reconnectionDelay: 1000,
+    reconnectionAttempts: Infinity,
+  });
+
+  socket.on("connect", () => {
+    status.textContent = "live";
+    status.className   = "live";
+    dbg.ws.textContent = "connected";
+    dbg.ws.className   = "good";
+  });
+  socket.on("disconnect", () => {
+    status.textContent = "disconnected";
+    status.className   = "";
+    dbg.ws.textContent = "disconnected";
+    dbg.ws.className   = "bad";
+    lastX = null; lastY = null;
+    resetCursor();
+  });
+
+  socket.on("paint_update", (data) => {
+    _evtCount++;
+
+    // data.x = roll (rad), data.y = pitch (rad) — straight from ESP32
+    const roll  = parseFloat(data.x);
+    const pitch = parseFloat(data.y);
+
+    const isAlive = data.alive === true;
+    dbg.esp.textContent = isAlive ? "connected ✓" : "waiting…";
+    dbg.esp.className   = isAlive ? "good" : "warn";
+
+    dbg.roll.textContent  = roll.toFixed(4);
+    dbg.pitch.textContent = pitch.toFixed(4);
+
+    // Subtract resting bias so flat = no movement
+    const b = applyBias(pitch, roll);
+
+    // pitch → horizontal (X),  roll → vertical (Y)
+    // Flip the sign of either line if a direction feels inverted
+    curX += b.pitch * SPEED * DT;
+    curY += b.roll  * SPEED * DT;
+    curX  = Math.max(0, Math.min(canvas.width,  curX));
+    curY  = Math.max(0, Math.min(canvas.height, curY));
+
+    dbg.xy.textContent = `${Math.round(curX)}, ${Math.round(curY)}`;
+
+    moveDot(curX, curY);
+    draw(curX, curY);
+  });
+
+}());
+</script>
+</body>
+</html>

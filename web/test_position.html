@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Position Test</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a0f; color: #e0e8ff; font-family: monospace; overflow: hidden; }
+
+  #canvas { display: block; width: 100vw; height: 100vh; }
+
+  #hud {
+    position: fixed;
+    top: 16px; left: 16px;
+    background: rgba(0,0,0,0.65);
+    border: 1px solid #1a3a6a;
+    border-radius: 8px;
+    padding: 14px 18px;
+    font-size: 13px;
+    line-height: 2;
+    min-width: 220px;
+    pointer-events: none;
+  }
+  #hud .label { color: #556; }
+  #hud .val   { color: #4ef; font-weight: bold; }
+  #hud .state { font-size: 15px; font-weight: bold; margin-bottom: 6px; }
+  #hud .sep   { border-top: 1px solid #1a3a6a; margin: 6px 0; }
+
+  #reset-btn {
+    position: fixed;
+    bottom: 20px; left: 50%;
+    transform: translateX(-50%);
+    background: #1a3a6a;
+    color: #adf;
+    border: 1px solid #4ef;
+    border-radius: 6px;
+    padding: 8px 28px;
+    font-family: monospace;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  #reset-btn:hover { background: #2a5aaa; }
+</style>
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+
+<div id="hud">
+  <div class="state">State: <span id="s-state" class="val">—</span></div>
+  <div class="sep"></div>
+  <div><span class="label">x_pos  </span><span id="s-xp" class="val">0.000</span> m</div>
+  <div><span class="label">y_pos  </span><span id="s-yp" class="val">0.000</span> m</div>
+  <div><span class="label">z_pos  </span><span id="s-zp" class="val">0.000</span> m</div>
+  <div class="sep"></div>
+  <div><span class="label">accel  </span><span id="s-acc" class="val">0.000</span> m/s²</div>
+  <div><span class="label">roll   </span><span id="s-roll" class="val">0.00</span>°</div>
+  <div><span class="label">pitch  </span><span id="s-pitch" class="val">0.00</span>°</div>
+  <div><span class="label">yaw    </span><span id="s-yaw" class="val">0.00</span>°</div>
+</div>
+
+<button id="reset-btn">RESET POSITION</button>
+
+<!-- Three.js + Socket.IO from CDN -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+
+<script>
+"use strict";
+
+// ── Three.js setup ────────────────────────────────────────────────────
+const canvas   = document.getElementById("canvas");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setClearColor(0x0a0a0f);
+
+const scene  = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(60, 1, 0.01, 500);
+// Camera sits above-and-behind origin so all three axes are visible.
+// X = left/right  Y = up/down  Z = toward/away (now in front of camera)
+camera.position.set(0, 4, 8);
+camera.lookAt(0, 0, 0);
+
+function resize() {
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener("resize", resize);
+resize();
+
+// ── Axes ─────────────────────────────────────────────────────────────
+// Long axes lines through origin
+function makeAxis(dir, color, len) {
+  const pts = [dir.clone().multiplyScalar(-len), dir.clone().multiplyScalar(len)];
+  const geo  = new THREE.BufferGeometry().setFromPoints(pts);
+  return new THREE.Line(geo, new THREE.LineBasicMaterial({ color }));
+}
+scene.add(makeAxis(new THREE.Vector3(1, 0, 0), 0xff3333, 4));  // X red
+scene.add(makeAxis(new THREE.Vector3(0, 1, 0), 0x33ff33, 4));  // Y green
+scene.add(makeAxis(new THREE.Vector3(0, 0, 1), 0x3399ff, 4));  // Z blue
+
+// Axis labels (sprites)
+function makeLabel(text, pos, color) {
+  const canvas2 = document.createElement("canvas");
+  canvas2.width = 64; canvas2.height = 32;
+  const ctx = canvas2.getContext("2d");
+  ctx.fillStyle = color;
+  ctx.font = "bold 22px monospace";
+  ctx.fillText(text, 8, 24);
+  const tex = new THREE.CanvasTexture(canvas2);
+  const sp  = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
+  sp.position.copy(pos);
+  sp.scale.set(0.5, 0.25, 1);
+  return sp;
+}
+scene.add(makeLabel("X", new THREE.Vector3(4.3, 0, 0), "#ff5555"));
+scene.add(makeLabel("Y", new THREE.Vector3(0, 4.3, 0), "#55ff55"));
+scene.add(makeLabel("Z", new THREE.Vector3(0, 0, 4.3), "#55aaff"));
+
+// Grid on XZ plane (floor)
+const grid = new THREE.GridHelper(8, 16, 0x1a3a6a, 0x0e2040);
+scene.add(grid);
+
+// ── The point ────────────────────────────────────────────────────────
+const pointGeo = new THREE.SphereGeometry(0.12, 16, 16);
+const pointMat = new THREE.MeshBasicMaterial({ color: 0x00eeff });
+const point    = new THREE.Mesh(pointGeo, pointMat);
+scene.add(point);
+
+// Small glow halo around the point
+const haloGeo = new THREE.SphereGeometry(0.22, 16, 16);
+const haloMat = new THREE.MeshBasicMaterial({
+  color: 0x00eeff, transparent: true, opacity: 0.18, wireframe: true
+});
+point.add(new THREE.Mesh(haloGeo, haloMat));
+
+// Origin marker
+const originGeo = new THREE.SphereGeometry(0.06, 8, 8);
+const originMat = new THREE.MeshBasicMaterial({ color: 0x888888 });
+scene.add(new THREE.Mesh(originGeo, originMat));
+
+// ── Trail ─────────────────────────────────────────────────────────────
+const MAX_TRAIL = 200;
+const trailBuf  = new Float32Array(MAX_TRAIL * 3);
+const trailGeo  = new THREE.BufferGeometry();
+const trailAttr = new THREE.BufferAttribute(trailBuf, 3);
+trailAttr.setUsage(THREE.DynamicDrawUsage);
+trailGeo.setAttribute("position", trailAttr);
+trailGeo.setDrawRange(0, 0);
+const trailLine = new THREE.Line(
+  trailGeo,
+  new THREE.LineBasicMaterial({ color: 0x00eeff, transparent: true, opacity: 0.4 })
+);
+scene.add(trailLine);
+
+const trailPts = [];  // [{x,y,z}]
+
+// ── Render loop ───────────────────────────────────────────────────────
+let targetX = 0, targetY = 0, targetZ = 0;  // smoothed target
+
+(function animate() {
+  requestAnimationFrame(animate);
+
+  // Smooth the point motion
+  point.position.x += (targetX - point.position.x) * 0.2;
+  point.position.y += (targetY - point.position.y) * 0.2;
+  point.position.z += (targetZ - point.position.z) * 0.2;
+
+  renderer.render(scene, camera);
+})();
+
+// ── Socket.IO ─────────────────────────────────────────────────────────
+const SCALE = 15.0;  // metres → scene units  (1 m real ≈ 15 scene units)
+
+const socket = io("http://localhost:5001", {
+  reconnectionDelay: 1000, reconnectionAttempts: Infinity
+});
+
+socket.on("connect",    () => console.log("[WS] connected"));
+socket.on("disconnect", () => console.warn("[WS] disconnected"));
+
+// Max scene-units the target may jump in one update (prevents teleports).
+const MAX_JUMP = 1.5;
+
+function clampJump(current, next) {
+  const delta = next - current;
+  if (Math.abs(delta) > MAX_JUMP) return current + Math.sign(delta) * MAX_JUMP;
+  return next;
+}
+
+socket.on("sensor_update", (data) => {
+  const mpu = data.mpu || {};
+  const pos = data.position || { x: 0, y: 0, z: 0 };
+
+  // Clamp max jump so a teleport becomes a fast slide instead
+  targetX = clampJump(targetX, (pos.x || 0) * SCALE);
+  targetY = clampJump(targetY, (pos.z || 0) * SCALE);
+  targetZ = clampJump(targetZ, (pos.y || 0) * SCALE);
+
+  // Update trail
+  trailPts.push({ x: targetX, y: targetY, z: targetZ });
+  if (trailPts.length > MAX_TRAIL) trailPts.shift();
+  for (let i = 0; i < trailPts.length; i++) {
+    trailBuf[i*3]   = trailPts[i].x;
+    trailBuf[i*3+1] = trailPts[i].y;
+    trailBuf[i*3+2] = trailPts[i].z;
+  }
+  trailAttr.needsUpdate = true;
+  trailGeo.setDrawRange(0, trailPts.length);
+
+  // HUD
+  _set("s-xp",    (pos.x || 0).toFixed(3));
+  _set("s-yp",    (pos.y || 0).toFixed(3));
+  _set("s-zp",    (pos.z || 0).toFixed(3));
+  _set("s-acc",   ((mpu.accel_mag || 0)).toFixed(3));
+  _set("s-roll",  ((mpu.roll  || 0) * 57.296).toFixed(1));
+  _set("s-pitch", ((mpu.pitch || 0) * 57.296).toFixed(1));
+  _set("s-yaw",   ((mpu.yaw   || 0) * 57.296).toFixed(1));
+  _set("s-state", mpu.state || "—");
+});
+
+// ── Reset button ──────────────────────────────────────────────────────
+document.getElementById("reset-btn").addEventListener("click", () => {
+  targetX = 0; targetY = 0; targetZ = 0;
+  trailPts.length = 0;
+  trailGeo.setDrawRange(0, 0);
+});
+
+function _set(id, v) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = v;
+}
+</script>
+</body>
+</html>

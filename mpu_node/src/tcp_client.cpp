@@ -75,17 +75,17 @@ bool sendJson(const char* json) {
     return true;
 }
 
-void tcpReconnectIfNeeded() {
-    if (!client.connected()) {
+bool tcpReconnectIfNeeded() {
+    if (client.connected()) return false;
+
 #ifdef DEBUG_MODE
-        Serial.println("[TCP] Lost connection — reconnecting...");
+    Serial.println("[TCP] Lost connection — reconnecting...");
 #endif
-        client.stop();
-        // Non-blocking: if WiFi dropped, wifiConnect() will timeout
-        // and we will retry next cycle rather than stalling the loop.
-        if (WiFi.status() != WL_CONNECTED) {
-            wifiConnect();
-        }
-        client.connect(SERVER_IP, SERVER_PORT);
-    }
+    client.stop();
+    if (WiFi.status() != WL_CONNECTED) wifiConnect();
+    bool ok = client.connect(SERVER_IP, SERVER_PORT);
+#ifdef DEBUG_MODE
+    if (ok) Serial.println("[TCP] Reconnected — position reset");
+#endif
+    return ok;
 }
