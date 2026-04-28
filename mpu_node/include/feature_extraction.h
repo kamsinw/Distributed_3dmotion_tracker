@@ -9,10 +9,5 @@ struct Features {
 };
 
 void     featureInit();
-
-// Push latest accelerometer reading into the circular buffer,
-// recompute statistics, and integrate velocity.
-// ax/ay/az in m/s²,  dt in seconds.
 void     featureUpdate(float ax, float ay, float az, float dt);
-
 Features featureGet();

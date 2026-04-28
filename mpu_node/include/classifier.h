@@ -7,8 +7,5 @@ enum MotionState {
     STATE_DROP  = 3
 };
 
-// Classify motion based on acceleration statistics.
 MotionState classify(float std_accel, float max_accel);
-
-// Return the JSON-ready string label for a state.
 const char* stateToString(MotionState state);

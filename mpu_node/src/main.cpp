@@ -7,20 +7,11 @@
 #include "classifier.h"
 #include "tcp_client.h"
 
-// millis() timestamps for non-blocking scheduling
 static uint32_t last_mpu_ms  = 0;
 static uint32_t last_send_ms = 0;
-
-// Latest calibrated accelerometer readings (m/s²), updated at 50 Hz.
-// Read by the 20 Hz send loop to include in the JSON packet.
 static float g_ax = 0.0f, g_ay = 0.0f, g_az = 0.0f;
-
-// Sensor B (position sensor) orientation angles, updated at 50 Hz.
 static float g_pos_roll = 0.0f, g_pos_pitch = 0.0f;
-
 static char json_buf[256];
-
-// ------------------------------------------------------------------
 
 void setup() {
     Serial.begin(115200);
@@ -54,12 +45,9 @@ void setup() {
 #endif
 }
 
-// ------------------------------------------------------------------
-
 void loop() {
     const uint32_t now = millis();
 
-    // ---- Sensor pipeline at 50 Hz --------------------------------
     if (now - last_mpu_ms >= MPU_LOOP_MS) {
         last_mpu_ms = now;
 
@@ -75,7 +63,6 @@ void loop() {
             featureUpdate(imu.ax, imu.ay, imu.az, dt);
         }
 
-        // Sensor B — position sensor
         RawImuData pos_imu;
         if (mpuReadPos(pos_imu)) {
             g_pos_roll  = atan2f(pos_imu.ay, pos_imu.az);
@@ -85,7 +72,6 @@ void loop() {
         }
     }
 
-    // ---- TCP send at 20 Hz ---------------------------------------
     if (now - last_send_ms >= SEND_LOOP_MS) {
         last_send_ms = now;
 

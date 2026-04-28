@@ -4,16 +4,13 @@
 #include <math.h>
 #include "config.h"
 
-// ── MPU6050 register addresses ────────────────────────────────────────────────
 #define PWR_MGMT_1   0x6B
 #define ACCEL_CONFIG 0x1C
 #define GYRO_CONFIG  0x1B
 #define ACCEL_XOUT_H 0x3B
 
-// ── LPF smoothing (0 = no filter, 1 = never updates) ─────────────────────────
 static const float ALPHA = 0.25f;
 
-// ── globals ───────────────────────────────────────────────────────────────────
 static float s_roll  = 0.0f;
 static float s_pitch = 0.0f;
 
@@ -23,8 +20,6 @@ static char       json_buf[128];
 static uint32_t last_read_ms = 0;
 static uint32_t last_send_ms = 0;
 
-// ── helpers ───────────────────────────────────────────────────────────────────
-
 static void mpuWrite(uint8_t reg, uint8_t val) {
     Wire.beginTransmission(MPU_ADDR);
     Wire.write(reg);
@@ -33,27 +28,24 @@ static void mpuWrite(uint8_t reg, uint8_t val) {
 }
 
 static bool mpuInit() {
-    // WHO_AM_I check using repeated-start (same as working mpu_driver.cpp)
     Wire.beginTransmission(MPU_ADDR);
     Wire.write(0x75);
     if (Wire.endTransmission(false) != 0) return false;
     uint8_t got = Wire.requestFrom((uint8_t)MPU_ADDR, (uint8_t)1, (uint8_t)true);
     if (got != 1) return false;
     uint8_t who = Wire.read();
-    // Accept all known MPU60x0/MPU92xx WHO_AM_I responses
     if (who != 0x68 && who != 0x69 && who != 0x70 &&
         who != 0x71 && who != 0x72 && who != 0x73) return false;
 
-    mpuWrite(PWR_MGMT_1,   0x00);           // wake (no PLL, keeps it simple)
+    mpuWrite(PWR_MGMT_1,   0x00);
     delay(10);
-    mpuWrite(0x19,         0x07);           // sample rate div → 125 Hz
-    mpuWrite(0x1A,         0x03);           // DLPF 44 Hz
-    mpuWrite(GYRO_CONFIG,  0x08);           // ±500 °/s  → 65.5 LSB/(°/s)
-    mpuWrite(ACCEL_CONFIG, 0x08);           // ±4 g      → 8192 LSB/g
+    mpuWrite(0x19,         0x07);
+    mpuWrite(0x1A,         0x03);
+    mpuWrite(GYRO_CONFIG,  0x08);
+    mpuWrite(ACCEL_CONFIG, 0x08);
     return true;
 }
 
-// Reads accel (m/s²) — ±4g → 8192 LSB/g, same config as mpu_driver.cpp
 static bool mpuRead(float &ax, float &ay, float &az) {
     Wire.beginTransmission(MPU_ADDR);
     Wire.write(ACCEL_XOUT_H);
@@ -82,14 +74,12 @@ static void tcpEnsureConnected() {
     Serial.println(" OK");
 }
 
-// ── Arduino entry points ──────────────────────────────────────────────────────
-
 void setup() {
     Serial.begin(115200);
     delay(300);
 
     Wire.begin(SDA_PIN, SCL_PIN);
-    Wire.setClock(100000);   // 100 kHz — more reliable for MPU6050
+    Wire.setClock(100000);
     delay(200);
 
     Serial.print("[WiFi] Connecting...");
@@ -115,24 +105,19 @@ void setup() {
 void loop() {
     const uint32_t now = millis();
 
-    // ── Read MPU at 50 Hz ─────────────────────────────────────────────────────
     if (now - last_read_ms >= READ_MS) {
         last_read_ms = now;
 
         float ax, ay, az;
         if (mpuRead(ax, ay, az)) {
-            // roll  = tilt left/right
-            // pitch = tilt forward/back
             float roll  = atan2f(ay, az);
             float pitch = atan2f(-ax, sqrtf(ay * ay + az * az));
 
-            // Low-pass filter to smooth out jitter
             s_roll  = ALPHA * roll  + (1.0f - ALPHA) * s_roll;
             s_pitch = ALPHA * pitch + (1.0f - ALPHA) * s_pitch;
         }
     }
 
-    // ── Send at 20 Hz ─────────────────────────────────────────────────────────
     if (now - last_send_ms >= SEND_MS) {
         last_send_ms = now;
         tcpEnsureConnected();

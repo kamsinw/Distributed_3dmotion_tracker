@@ -1,13 +1,3 @@
-"""
-fusion.py — Direct angle-to-position mapping.
-
-Roll  → position X  (tilt left/right)
-Pitch → position Y  (tilt forward/back)
-Yaw   → position Z  (spin)
-
-No integration, no drift, no thresholds.
-"""
-
 from collections import deque
 
 
@@ -17,8 +7,6 @@ class SensorFusion:
         self._last_pos: dict = {"x": 0.0, "y": 0.0, "z": 0.0}
 
     def fuse(self, mpu_data: dict) -> dict:
-        # Use sensor B (pos_roll/pos_pitch) for position when available,
-        # otherwise fall back to sensor A orientation angles.
         pos = {
             "x": round(float(mpu_data.get("pos_roll",  mpu_data.get("roll",  0.0))), 4),
             "y": round(float(mpu_data.get("pos_pitch", mpu_data.get("pitch", 0.0))), 4),

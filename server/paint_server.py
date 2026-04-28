@@ -1,15 +1,3 @@
-"""
-paint_server.py  —  Standalone server for the MPU Paint app.
-
-Flow:
-  ESP32  ──TCP:9000──►  this script  ──WebSocket──►  paint.html
-
-Receives {"node":"mpu","roll":X,"pitch":Y} from the ESP32.
-Emits    {"x": roll, "y": pitch}  to the browser at 20 Hz.
-
-No physics, no fusion, no trail.  Roll IS x.  Pitch IS y.
-"""
-
 import socket
 import threading
 import json
@@ -18,8 +6,6 @@ import os
 
 from flask import Flask, send_from_directory
 from flask_socketio import SocketIO
-
-# ── Flask / SocketIO ──────────────────────────────────────────────────────────
 
 WEB_DIR = os.path.join(os.path.dirname(__file__), "..", "web")
 
@@ -34,8 +20,6 @@ def index():
 def static_files(f):
     return send_from_directory(WEB_DIR, f)
 
-# ── Shared sensor state ───────────────────────────────────────────────────────
-
 _lock  = threading.Lock()
 _state = {
     "roll":              0.0,
@@ -47,7 +31,6 @@ _state = {
     "ultra_alive":       False,
 }
 
-# ── TCP listener  (ESP32 connects here) ──────────────────────────────────────
 
 def tcp_listener(port, handler):
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -111,7 +94,6 @@ def handle_ultra_client(conn, addr):
             _state["ultra_alive"] = False
         print(f"[TCP] Ultrasonic disconnected: {addr}")
 
-# ── Broadcast loop  (20 Hz → browser) ────────────────────────────────────────
 
 def broadcast_loop(hz=20):
     interval = 1.0 / hz
@@ -130,7 +112,6 @@ def broadcast_loop(hz=20):
         socketio.emit("paint_update", payload)
         time.sleep(max(0.0, interval - (time.time() - t0)))
 
-# ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     threading.Thread(target=tcp_listener, args=(9000, handle_client),      daemon=True).start()

@@ -1,8 +1,6 @@
 #include "classifier.h"
 #include "config.h"
 
-// Thresholds (m/s² units)
-// Serial logs show std ~0.01-0.05 at rest, 0.05-0.20 during gentle movement.
 static constexpr float IDLE_STD  = 0.05f;
 static constexpr float SHAKE_STD = 1.2f;
 static constexpr float DROP_ACC  = 3.5f;

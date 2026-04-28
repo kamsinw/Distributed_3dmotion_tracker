@@ -1,12 +1,8 @@
-// MPU driver — raw Wire, single sensor (Sensor A, 0x69, AD0→VCC).
-// Uses Wire.endTransmission(false) for reliable repeated-start reads.
-
 #include "mpu_driver.h"
 #include "config.h"
 #include <Arduino.h>
 #include <Wire.h>
 
-// ── Register map ──────────────────────────────────────────────────────
 static constexpr uint8_t REG_SMPLRT_DIV   = 0x19;
 static constexpr uint8_t REG_CONFIG       = 0x1A;
 static constexpr uint8_t REG_GYRO_CONFIG  = 0x1B;
@@ -16,30 +12,23 @@ static constexpr uint8_t REG_ACCEL_XOUT_H = 0x3B;
 static constexpr uint8_t REG_PWR_MGMT_1   = 0x6B;
 static constexpr uint8_t REG_WHO_AM_I     = 0x75;
 
-// Sensor A (0x69, AD0→VCC) — rotation sensor
 static constexpr uint8_t ADDR_A = 0x69;
 static bool active_a = false;
 
-// Sensor B (0x68, AD0→GND) — position sensor
 static constexpr uint8_t ADDR_B = 0x68;
 static bool active_b = false;
 
-// Accelerometer bias from calibration
 static float bias_ax = 0, bias_ay = 0, bias_az = 0;
 static float bias_bx = 0, bias_by = 0, bias_bz = 0;
 
-// LPF state — one set per sensor
 static float filt_ax = 0, filt_ay = 0, filt_az = 0;
 static float filt_gx = 0, filt_gy = 0, filt_gz = 0;
 static float filt_bx = 0, filt_by = 0, filt_bz = 0;
 static float filt_bgx = 0, filt_bgy = 0, filt_bgz = 0;
 static float ALPHA = 0.3f;
 
-// ±4 g → 8192 LSB/g → m/s²   |   ±500°/s → 65.5 LSB/(°/s)
 static constexpr float ACCEL_SCALE = 9.81f / 8192.0f;
 static constexpr float GYRO_SCALE  = 1.0f  / 65.5f;
-
-// ── I2C helpers ───────────────────────────────────────────────────────
 
 static bool writeReg(uint8_t addr, uint8_t reg, uint8_t val) {
     Wire.beginTransmission(addr);
@@ -68,11 +57,11 @@ static bool checkPresent(uint8_t addr) {
 static bool initSensor(uint8_t addr) {
     if (!writeReg(addr, REG_PWR_MGMT_1, 0x00)) return false;
     delay(10);
-    writeReg(addr, REG_SMPLRT_DIV,   0x07);  // 125 Hz
-    writeReg(addr, REG_CONFIG,        0x03);  // DLPF 44 Hz
-    writeReg(addr, REG_GYRO_CONFIG,   0x08);  // ±500°/s
-    writeReg(addr, REG_ACCEL_CONFIG,  0x08);  // ±4 g
-    writeReg(addr, REG_INT_ENABLE,    0x01);  // data-ready interrupt
+    writeReg(addr, REG_SMPLRT_DIV,   0x07);
+    writeReg(addr, REG_CONFIG,        0x03);
+    writeReg(addr, REG_GYRO_CONFIG,   0x08);
+    writeReg(addr, REG_ACCEL_CONFIG,  0x08);
+    writeReg(addr, REG_INT_ENABLE,    0x01);
     return true;
 }
 
@@ -89,8 +78,6 @@ static bool readRawFrom(uint8_t addr,
     gz = (int16_t)((buf[12] << 8) | buf[13]) * GYRO_SCALE;
     return true;
 }
-
-// ── Public API ────────────────────────────────────────────────────────
 
 void mpuSetAlpha(float alpha) { ALPHA = alpha; }
 
@@ -114,7 +101,7 @@ bool mpuInit() {
     Serial.printf("[MPU] Sensor B (0x68 position): %s\n",
                   active_b ? "OK" : "NOT FOUND");
 #endif
-    return active_a;  // A is required; B is optional
+    return active_a;
 }
 
 uint8_t mpuActiveMask() {

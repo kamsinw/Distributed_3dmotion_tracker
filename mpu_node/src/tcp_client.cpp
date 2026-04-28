@@ -4,10 +4,6 @@
 
 static WiFiClient client;
 
-// ------------------------------------------------------------------
-// Internal helpers
-// ------------------------------------------------------------------
-
 static bool wifiConnect() {
     if (WiFi.status() == WL_CONNECTED) return true;
 
@@ -18,7 +14,6 @@ static bool wifiConnect() {
     Serial.print("[WIFI] Connecting");
 #endif
 
-    // Block only during setup() — use millis() to avoid watchdog reset
     uint32_t start = millis();
     while (WiFi.status() != WL_CONNECTED) {
         if (millis() - start > 15000) {
@@ -27,7 +22,6 @@ static bool wifiConnect() {
 #endif
             return false;
         }
-        // yield() surrenders to the RTOS; no fixed-duration block
         yield();
 #ifdef DEBUG_MODE
         Serial.print('.');
@@ -40,10 +34,6 @@ static bool wifiConnect() {
 #endif
     return true;
 }
-
-// ------------------------------------------------------------------
-// Public API
-// ------------------------------------------------------------------
 
 bool tcpConnect() {
     if (!wifiConnect()) return false;
@@ -70,7 +60,6 @@ bool tcpConnected() {
 
 bool sendJson(const char* json) {
     if (!client.connected()) return false;
-    // println() appends '\n' — server reads line-by-line
     client.println(json);
     return true;
 }

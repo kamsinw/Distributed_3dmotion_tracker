@@ -4,7 +4,6 @@
 #include <Arduino.h>
 #include <math.h>
 
-// 50-sample sliding window for acceleration magnitude
 static CircularBuffer<float, 50> accel_buf;
 static float velocity = 0.0f;
 static Features current;
@@ -16,15 +15,12 @@ void featureInit() {
 }
 
 void featureUpdate(float ax, float ay, float az, float dt) {
-    // Step 4 — acceleration magnitude and gravity removal
     float mag          = sqrtf(ax * ax + ay * ay + az * az);
     float motion_accel = mag - 9.81f;
 
-    // Step 5 — velocity integration with 0.98 damping
     velocity += motion_accel * dt;
     velocity *= 0.98f;
 
-    // Step 6 — push into sliding window
     accel_buf.push(mag);
 
     current.accel_mag = mag;
@@ -32,7 +28,6 @@ void featureUpdate(float ax, float ay, float az, float dt) {
 
     if (accel_buf.count == 0) return;
 
-    // Single-pass mean, max, and variance
     float sum     = 0.0f;
     float max_val = accel_buf.at(0);
 

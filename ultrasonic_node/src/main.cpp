@@ -7,8 +7,6 @@
 static uint32_t last_loop_ms = 0;
 static char     json_buf[192];
 
-// ------------------------------------------------------------------
-
 void setup() {
     Serial.begin(115200);
     delay(500);
@@ -21,7 +19,6 @@ void setup() {
     filterInit();
     tcpConnect();
 
-    // Fire the first trigger so the interrupt is primed
     last_loop_ms = millis();
     triggerPulse();
 
@@ -29,8 +26,6 @@ void setup() {
     Serial.println("[SYS] Ready");
 #endif
 }
-
-// ------------------------------------------------------------------
 
 void loop() {
     const uint32_t now = millis();
@@ -62,8 +57,6 @@ void loop() {
             sendJson(json_buf);
         }
 
-        // Fire next trigger at the end of every cycle.
-        // The ISR will capture the echo before the next loop iteration.
         triggerPulse();
     }
 }

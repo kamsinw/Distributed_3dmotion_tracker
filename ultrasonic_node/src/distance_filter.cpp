@@ -2,17 +2,9 @@
 #include "circular_buffer.h"
 #include "config.h"
 
-// 5-sample sliding window — enough to smooth HC-SR04 noise
-// without adding significant lag at 20 Hz
 static CircularBuffer<float, 5> dist_buf;
-
-// Baseline distance captured at startup (cm)
-static float baseline_cm = -1.0f;  // negative = not yet set
-
-// Previous filtered reading — used to compute speed
+static float baseline_cm = -1.0f;
 static float prev_filtered = 0.0f;
-
-// ------------------------------------------------------------------
 
 void filterInit() {
     dist_buf.clear();
@@ -23,7 +15,6 @@ void filterInit() {
 float filterUpdate(float raw_cm) {
     dist_buf.push(raw_cm);
 
-    // Capture baseline once the window has at least 3 samples
     if (baseline_cm < 0.0f && dist_buf.count >= 3) {
         float sum = 0.0f;
         for (uint16_t i = 0; i < dist_buf.count; i++) sum += dist_buf.at(i);
@@ -34,7 +25,6 @@ float filterUpdate(float raw_cm) {
 #endif
     }
 
-    // Sliding window mean
     float sum = 0.0f;
     for (uint16_t i = 0; i < dist_buf.count; i++) sum += dist_buf.at(i);
     return sum / (float)dist_buf.count;

@@ -16,7 +16,6 @@
       overflow: hidden;
     }
 
-    /* ---------- 3D canvas ---------- */
     #canvas-wrap {
       flex: 1;
       position: relative;
@@ -24,7 +23,6 @@
     }
     #canvas-wrap canvas { display: block; }
 
-    /* Subtle title overlay */
     #scene-title {
       position: absolute;
       top: 16px;
@@ -38,7 +36,6 @@
       white-space: nowrap;
     }
 
-    /* ---------- HUD sidebar ---------- */
     #hud {
       width: 270px;
       min-width: 270px;
@@ -74,7 +71,6 @@
       margin-bottom: 3px;
     }
 
-    /* Motion state badge */
     #state-badge {
       text-align: center;
       padding: 9px 6px;
@@ -89,7 +85,6 @@
     .s-shake { background: #231508; color: #ffa726; border: 1px solid #7a4000; }
     .s-drop  { background: #200a0a; color: #ef5350; border: 1px solid #7a1010; }
 
-    /* Metric rows */
     .metric {
       display: flex;
       justify-content: space-between;
@@ -101,7 +96,6 @@
     .metric .lbl  { color: #5a7898; }
     .metric .val  { color: #90c8ff; font-weight: bold; font-variant-numeric: tabular-nums; }
 
-    /* Node status */
     .dot {
       display: inline-block;
       width: 7px; height: 7px;
@@ -113,7 +107,6 @@
     .dot-stale { background: #ef5350; }
     .dot-wait  { background: #ff9800; }
 
-    /* Reset / Calibrate buttons */
     #btn-reset, #btn-cal {
       width: 100%;
       padding: 8px 0;
@@ -132,7 +125,6 @@
     #btn-reset:active, #btn-cal:active { background: #0a1828; }
     #btn-cal.calibrating { color: #ffa726; border-color: #7a4000; background: #1a1000; cursor: default; }
 
-    /* Trail footer */
     #trail-footer {
       margin-top: auto;
       font-size: 0.6rem;
@@ -151,13 +143,11 @@
   <div id="hud">
     <div id="hud-title">Motion Tracker</div>
 
-    <!-- Motion State -->
     <div class="section">
       <div class="section-label">Motion State</div>
       <div id="state-badge" class="s-idle">IDLE</div>
     </div>
 
-    <!-- Orientation -->
     <div class="section">
       <div class="section-label">Orientation (rad)</div>
       <div class="metric"><span class="lbl">Roll</span>  <span class="val" id="v-roll">0.000</span></div>
@@ -165,7 +155,6 @@
       <div class="metric"><span class="lbl">Yaw</span>   <span class="val" id="v-yaw">0.000</span></div>
     </div>
 
-    <!-- Fused Position -->
     <div class="section">
       <div class="section-label">Fused Position</div>
       <div class="metric"><span class="lbl">X</span> <span class="val" id="v-x">0.000</span></div>
@@ -173,7 +162,6 @@
       <div class="metric"><span class="lbl">Z</span> <span class="val" id="v-z">0.000</span></div>
     </div>
 
-    <!-- Node Status -->
     <div class="section">
       <div class="section-label">Node Status</div>
       <div class="metric">
@@ -186,7 +174,6 @@
       </div>
     </div>
 
-    <!-- Ultrasonic -->
     <div class="section">
       <div class="section-label">Ultrasonic</div>
       <div class="metric"><span class="lbl">Distance</span> <span class="val" id="v-dist">— cm</span></div>
@@ -201,11 +188,9 @@
     </div>
   </div>
 
-  <!-- CDN libraries (no build step required) -->
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 
-  <!-- Application scripts -->
   <script src="three_scene.js"></script>
   <script src="main.js"></script>
 

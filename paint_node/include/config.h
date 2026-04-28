@@ -8,9 +8,7 @@
 #define SDA_PIN 22
 #define SCL_PIN 21
 
-// MPU6050 address — AD0 → VCC → 0x69
 #define MPU_ADDR 0x69
 
-// Loop rates
-#define READ_MS  20    // 50 Hz
-#define SEND_MS  50    // 20 Hz
+#define READ_MS  20
+#define SEND_MS  50

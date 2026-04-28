@@ -16,7 +16,6 @@
       color: #ccc;
     }
 
-    /* ── toolbar ── */
     #toolbar {
       display: flex;
       align-items: center;
@@ -62,7 +61,6 @@
     }
     #status.live { color: #4a8; }
 
-    /* ── canvas area ── */
     #canvas-wrap {
       flex: 1;
       position: relative;
@@ -79,7 +77,6 @@
       display: block;
     }
 
-    /* cursor dot overlay */
     #cursor-dot {
       position: absolute;
       width: 12px; height: 12px;
@@ -91,7 +88,6 @@
       transition: left 30ms linear, top 30ms linear;
     }
 
-    /* Debug panel */
     #debug {
       position: absolute;
       bottom: 16px;
@@ -153,7 +149,6 @@
 <script>
 (function () {
 
-  // ── Canvas setup ──────────────────────────────────────────────────────────
   const wrap   = document.getElementById("canvas-wrap");
   const canvas = document.getElementById("canvas");
   const ctx    = canvas.getContext("2d");
@@ -163,7 +158,6 @@
     const pad = 32;
     const w = wrap.clientWidth  - pad * 2;
     const h = wrap.clientHeight - pad * 2;
-    // Save current drawing
     const tmp = ctx.getImageData(0, 0, canvas.width, canvas.height);
     canvas.width  = Math.max(w, 100);
     canvas.height = Math.max(h, 100);
@@ -174,7 +168,6 @@
   resizeCanvas();
   window.addEventListener("resize", resizeCanvas);
 
-  // ── Debug helpers ─────────────────────────────────────────────────────────
   const dbg = {
     ws:    document.getElementById("dbg-ws"),
     esp:   document.getElementById("dbg-esp"),
@@ -188,7 +181,6 @@
     pen:   document.getElementById("dbg-pen"),
   };
 
-  // Count events per second
   let _evtCount = 0, _evtRate = 0;
   setInterval(() => {
     _evtRate = _evtCount;
@@ -197,7 +189,6 @@
     dbg.evt.className = _evtRate > 0 ? "good" : "warn";
   }, 1000);
 
-  // ── Toolbar ───────────────────────────────────────────────────────────────
   const colorPick = document.getElementById("color-pick");
   const sizePick  = document.getElementById("size-pick");
   const sizeVal   = document.getElementById("size-val");
@@ -209,23 +200,17 @@
     sizeVal.textContent = sizePick.value + "px";
   });
 
-  // _manualPen: state set by the toolbar button (fallback when no ultrasonic)
-  // _ultraPen:  state driven by distance threshold (active when ultra_alive)
-  // penDown:    resolved each frame — ultra takes priority when connected
   let _manualPen = true;
   let _ultraPen  = true;
   let penDown    = true;
 
-  // Ultrasonic pen-lift thresholds (cm) — absolute distance, with hysteresis
   const PEN_LIFT_CM   = 5;
-  const PEN_RESUME_CM = 4;
+  const PEN_RESUME_CM = 4; // hysteresis so pen doesn't chatter
 
-  // Swipe-to-undo: speed threshold (cm/s) and cooldown (ms)
   const SWIPE_SPEED_CM_S = 60;
   const UNDO_COOLDOWN_MS = 1500;
   let _lastUndoTime = 0;
 
-  // Stroke history for undo (stores ImageData snapshots, max 20)
   const MAX_HISTORY = 20;
   const _strokeHistory = [];
 
@@ -244,22 +229,16 @@
     resetCursor();
   });
 
-  // ── Cursor state (velocity-based — tilt angle = speed, not position) ───────
-  // Tilting drives the cursor like a joystick; holding flat leaves it in place.
-  // pitch → horizontal (X),  roll → vertical (Y)
   let curX = canvas.width  / 2;
   let curY = canvas.height / 2;
-  const SPEED = 250;   // px per radian per second — increase to make it faster
-  const DT    = 1 / 20; // matches the 20 Hz broadcast rate
+  const SPEED = 250;
+  const DT    = 1 / 20; // ~server broadcast rate
 
   function resetCursor() {
     curX = canvas.width  / 2;
     curY = canvas.height / 2;
   }
 
-  // ── Bias calibration ──────────────────────────────────────────────────────
-  // Measures the resting tilt (sensor offset) and subtracts it from every
-  // reading so the cursor stays still when the device is held flat.
   let biasPitch = 0;
   let biasRoll  = 0;
   const CAL_SAMPLES = 30;
@@ -290,7 +269,6 @@
     return { pitch: rawPitch - biasPitch, roll: rawRoll - biasRoll };
   }
 
-  // ── Drawing state ─────────────────────────────────────────────────────────
   let lastX = null, lastY = null;
 
   function draw(cx, cy) {
@@ -302,12 +280,10 @@
     ctx.lineJoin    = "round";
 
     if (lastX === null) {
-      // Save canvas state before starting a new stroke so it can be undone
       const snap = ctx.getImageData(0, 0, canvas.width, canvas.height);
       _strokeHistory.push(snap);
       if (_strokeHistory.length > MAX_HISTORY) _strokeHistory.shift();
 
-      // First point — draw a dot
       ctx.beginPath();
       ctx.arc(cx, cy, ctx.lineWidth / 2, 0, Math.PI * 2);
       ctx.fillStyle = colorPick.value;
@@ -322,7 +298,6 @@
     lastY = cy;
   }
 
-  // ── Cursor dot positioning (relative to canvas in the page) ───────────────
   function moveDot(cx, cy) {
     const rect = canvas.getBoundingClientRect();
     dot.style.left = (rect.left + cx) + "px";
@@ -330,8 +305,7 @@
     dot.style.borderColor = colorPick.value;
   }
 
-  // ── WebSocket ─────────────────────────────────────────────────────────────
-  const socket = io("http://localhost:5002", {
+  const socket = io("http://localhost:5002", { // paint_server.py
     reconnectionDelay: 1000,
     reconnectionAttempts: Infinity,
   });
@@ -354,7 +328,6 @@
   socket.on("paint_update", (data) => {
     _evtCount++;
 
-    // data.x = roll (rad), data.y = pitch (rad) — straight from ESP32
     const roll  = parseFloat(data.x);
     const pitch = parseFloat(data.y);
 
@@ -365,7 +338,6 @@
     dbg.roll.textContent  = roll.toFixed(4);
     dbg.pitch.textContent = pitch.toFixed(4);
 
-    // ── Ultrasonic pen lift ──────────────────────────────────────────────────
     const ultraAlive = data.ultra_alive === true;
     const absDist    = parseFloat(data.distance);
     const speed      = parseFloat(data.speed);
@@ -377,25 +349,20 @@
       dbg.dist.textContent  = absDist.toFixed(1);
       dbg.speed.textContent = isFinite(speed) ? speed.toFixed(1) : "—";
 
-      // Hand within PEN_LIFT_CM → pen up; beyond PEN_RESUME_CM → pen down
       if (absDist < PEN_LIFT_CM)   _ultraPen = false;
       if (absDist > PEN_RESUME_CM) _ultraPen = true;
 
       penDown = _ultraPen;
     } else {
-      // Fall back to manual button when ultrasonic is disconnected
       penDown = _manualPen;
     }
 
-    // Update button appearance to reflect current pen state
     btnPen.textContent = penDown ? "✏ Draw" : "✋ Lift";
     btnPen.classList.toggle("active", penDown);
     dbg.pen.textContent = penDown ? "down" : "up";
 
-    // Break stroke continuity on pen lift so next touch starts a fresh stroke
     if (!penDown) { lastX = null; lastY = null; }
 
-    // ── Swipe-to-undo ────────────────────────────────────────────────────────
     if (ultraAlive && isFinite(speed) && Math.abs(speed) > SWIPE_SPEED_CM_S) {
       const now = Date.now();
       if (now - _lastUndoTime > UNDO_COOLDOWN_MS && _strokeHistory.length > 0) {
@@ -405,11 +372,8 @@
       }
     }
 
-    // Subtract resting bias so flat = no movement
     const b = applyBias(pitch, roll);
 
-    // pitch → horizontal (X),  roll → vertical (Y)
-    // Flip the sign of either line if a direction feels inverted
     curX += b.pitch * SPEED * DT;
     curY += b.roll  * SPEED * DT;
     curX  = Math.max(0, Math.min(canvas.width,  curX));
